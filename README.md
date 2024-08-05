@@ -1,2 +1,5 @@
 # Data-Collection-and-Formatting-for-PFS-Shiny-App
-Code and functionality to web scrape, format, and rank data from basketball-reference.com 
+The file in this repository contains the code and functions I used to web scrape and format data from basketball-reference.com.
+This was done to assist an R Shiny application, PFS, which was used in a classroom activity at Cal Poly San Luis Obispo. This application and activity are discussed in the paper titled "Plots for Shots: Using R's Shiny App and Culturally Relevant Data to Enhance Statistics and Data Science Learning" by Immanuel Williams, Gracie Briggs, and Joshua Havstad (myself). This paper is currently under review for publication at the Journal of Statistics and Data Science Education.
+The code in the included file for this repository collects data from 34 seasons on players' total stats for each given season. Michael Jordan, LeBron James, and Kobe Bryant are the focus of the code --ranking the players in the chosen seasons for the chosen statistics.
+The data and rankings are used by the PFS R Shiny application to create various visualizations meant to enhance students' understanding of statistics and visualizations through the comparison of these players.
