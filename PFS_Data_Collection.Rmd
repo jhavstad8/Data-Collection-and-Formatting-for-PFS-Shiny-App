@@ -1,0 +1,219 @@
+---
+title: "PFS Data collection"
+author: "Josh Havstad"
+date: "2024-05-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This file is associated with the paper "Plots for Shots: Using R's Shiny App and Culturally Relevant Data to Enhance Statistics and Data Science Learning" by Immanuel Williams, Gracie Briggs, and Joshua Havstad (myself). This paper is currently under review publication at the *Journal of Statistics and Data Science Education* (JSDSE).
+
+The paper focuses on an in-class activity to enhance students' understanding of statistics and visualizations, using an R Shiny app which compares data from 3 NBA players — Michael Jordan, LeBron James, and Kobe Bryant. This file contains some of the code and functions used to collect and format this data into a usable format for the R Shiny application.
+
+```{r, include = F}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(rvest)
+library(purrr)
+```
+
+## Code and Functions
+
+The R Shiny app uses data from the first 15 seasons of each player. This time frame includes data from the 1984-1985 to 2017-2018 NBA seasons. The app will visually compare the players based on specific stats and seasons which are decided by user input.
+
+### Data Collection / Web Scraping
+
+The data is collected from the *Basketball Reference* website. The first step is to create strings for the 34 URLs which contain the necessary data tables.
+
+```{r}
+# Create list of URLs with every year from Jordan's first year to James' last year
+# Create an empty list to store the URLs
+urls <- list()
+
+# Start and end years
+start_year <- 1985
+end_year <- 2018
+
+# Loop through each year and create the corresponding URL
+for (year in start_year:end_year) {
+  url <- paste0("https://www.basketball-reference.com/leagues/NBA_", year, "_totals.html")
+  urls[[year - start_year + 1]] <- url
+}
+
+# Print the list of URLs
+urls
+```
+
+From the list of URLs, we can extract the necessary data table from the website and create a .csv file. This data table will contain the list of all NBA players from that season and their totals for various statistics such as points, rebounds, assists, 3-pointers made, field-goal percentage, etc.
+
+The code below loops through all 34 URLs to create 34 corresponding data frames and .csv files.
+
+```{r}
+# Create an empty vector to store the table names
+table_names <- character()
+
+# Start and end years
+start_year <- 1985
+end_year <- 2018
+
+# Loop through each year and create the corresponding table name
+for (year in start_year:end_year) {
+  table_name <- paste0("totals_", year)
+  table_names <- c(table_names, table_name)
+}
+
+# convert list of URLs to list of data frames
+dfs <- list()  # Initialize an empty list
+
+for (df in seq_along(table_names)) {
+  totals_url <- urls[[df]]
+  totals <- read_html(totals_url)
+  totals_df <- html_table(html_nodes(totals, "#totals_stats"), fill = TRUE)[[1]]
+  file_name <- paste0(table_names[df], ".csv")
+  write.csv(totals_df, file = file_name, row.names = FALSE)
+  dfs[[df]] <- totals_df
+  
+  # introduce delay of 10 seconds between requests
+  Sys.sleep(10)
+}
+```
+
+### Data Wrangling / Formatting
+
+To analyze and use the data, each data frame needs to be formatted similarly. This includes removing the '\*' from players' names who made the all-star game that season. Additionally, the website sometimes includes players in multiple rows if they were traded or changed teams during that specific season. The player will have separate rows for each team he played on, as well as the overall cumulative stats from all teams combined. To keep it consistent, I keep only the row with the cumulative stats for each player.
+
+```{r}
+# function to remove duplicates, clean player names, and change statistics to numeric
+clean_df <- function(df){
+  df <- df[!duplicated(df$Player),]
+  df$Player <- gsub("\\*$", "", df$Player)
+  return(df)
+}
+```
+
+The code below cleans each data frame to make sure each data frame is suitable for the next step of ranking the players.
+
+```{r}
+# clean each data frame
+dfs_clean <- list()
+for(df in 1:length(dfs)){
+  dfs_clean[[df]] <- clean_df(dfs[[df]])
+}
+```
+
+### Ranking the Players
+
+In the R Shiny application, users have the option to choose graphics which compare how the players ranked among their peers for certain stats in a given season. For example, users can see where Michael Jordan ranked in total points in the NBA during his first season and how this compared to where LeBron James ranked in total points in the NBA during his first season.
+
+The code below shows a function which takes a player's name and a statistic as arguments and outputs the ranking for that player in the chosen statistic across the players' first 15 seasons at most.
+
+```{r}
+# create function to find the rankings of Jordan, James, and Bryant for their first 15 seasons each
+# function should take a player's name as a string and a statistic as a string
+find_rank <- function(Player, Stat){
+  rankings <- c() # create empty list of rankings
+  for(i in 1:34){ # loop through all data frames
+    df <- dfs_clean[[i]] # grab data frame for specific index in loop
+    sorted_df <- df %>% # sort data frame based on statistic provided
+      mutate(!!Stat := as.numeric(!!as.name(Stat))) %>%
+      arrange(desc(!!as.name(Stat)))
+    ranking <- which(sorted_df$Player == Player) # find which rank the player is
+    if (length(ranking) == 0) {
+      ranking <- NA
+    } else {
+      ranking <- ranking[1] # get the first rank if the player appears multiple times
+    }
+    if (!is.na(ranking)) {
+      rankings <- c(rankings, ranking) # add ranking to list of rankings
+    }
+  }
+  return(head(rankings, 15)) # output first 15 ranking values
+}
+```
+
+The code below expands on the previous function, ranking players in multiple statistics and creating a data frame with the statistics and corresponding rankings.
+
+```{r}
+df_ranks <- function(Player, Stats) {
+  rank_list <- list() # initialize empty list for the rankings
+  for (Stat in Stats) {
+    rank_vec <- find_rank(Player, Stat) # get vector of rankings for the stat
+    rank_list[[Stat]] <- rank_vec
+  }
+  df <- as.data.frame(rank_list) # convert the list to a data frame
+  return(df)
+}
+
+```
+
+### Finding Rankings for Radar Plot
+
+For the app's Radar Plot option, there are 9 statistics which users can view the players' rankings in. The code below will create a data frame and .csv file containing the rankings for each of these 9 statistics for the three players (Michael Jordan, LeBron James, Kobe Bryant). This file will be used directly by the R Shiny application.
+
+```{r}
+# list of stats used in Radar Plot
+Stats <- c("AST", "ORB", "TOV", "PTS", "3P", "FG", "DRB", "STL", "BLK")
+```
+
+```{r, warning = F}
+# find all rankings for Michael Jordan
+MJ <- df_ranks("Michael Jordan", Stats)
+View(MJ)
+```
+
+```{r, warning = F}
+# find all rankings for LeBron James
+LBJ <- df_ranks("LeBron James", Stats)
+View(LBJ)
+```
+
+```{r, warning = F}
+# find all rankings for Kobe Bryant
+KB <- df_ranks("Kobe Bryant", Stats)
+View(KB)
+```
+
+```{r}
+# create one data frame for all players
+
+# move all rankings into one column for each player
+long_LBJ <- LBJ %>%
+  pivot_longer(
+    cols = everything(),     # Specify all columns to pivot
+    names_to = "statistic",  # Name for the column with original column names
+    values_to = "rank"      # Name for the column with values
+  ) %>%
+  arrange(statistic)
+
+long_MJ <- MJ %>%
+  pivot_longer(
+    cols = everything(),     # Specify all columns to pivot
+    names_to = "statistic",  # Name for the column with original column names
+    values_to = "rank"      # Name for the column with values
+  ) %>%
+  arrange(statistic)
+
+long_KB <- KB %>%
+  pivot_longer(
+    cols = everything(),     # Specify all columns to pivot
+    names_to = "statistic",  # Name for the column with original column names
+    values_to = "rank"      # Name for the column with values
+  ) %>%
+  arrange(statistic)
+
+# merge data frames
+all_ranks <- data.frame(
+  Statistic = long_LBJ$statistic,
+  KB = long_KB$rank,
+  LJ = long_LBJ$rank,
+  MJ = long_MJ$rank
+)
+all_ranks
+write.csv(all_ranks, "all_ranks.csv", row.names = F)
+```
